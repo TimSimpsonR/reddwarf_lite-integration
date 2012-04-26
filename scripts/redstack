@@ -235,13 +235,19 @@ function install_packages_1() {
 }
 
 
-function add_to_keystone_conf() {
+
+function append_reddwarf_to_keystone_conf() {
     echo '
 catalog.RegionOne.reddwarf.publicURL = http://localhost:8779/v0.1/$(tenant_id)s
 catalog.RegionOne.reddwarf.adminURL = http://localhost:8779/v0.1/$(tenant_id)s
 catalog.RegionOne.reddwarf.internalURL = http://localhost:8779/v0.1/$(tenant_id)s
 catalog.RegionOne.reddwarf.name = 'Reddwarf'
-    ' >> $PATH_KEYSTONE/etc/default_catalog.templates
+    ' >> $1
+}
+
+function add_to_reddwarf_to_keystone_conf_files() {
+    append_reddwarf_to_keystone_conf $PATH_KEYSTONE/etc/default_catalog.templates
+    append_reddwarf_to_keystone_conf /etc/keystone/default_catalog.templates
 }
 
 function install_packages_2() {
@@ -286,7 +292,7 @@ logfile_mode=660
     set +e
     cmd_stop_deps
     set -e
-    add_to_keystone_conf
+    add_to_reddwarf_to_keystone_conf_files
 
     set +e
     cmd_start_deps
