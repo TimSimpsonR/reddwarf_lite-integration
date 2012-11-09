@@ -45,16 +45,7 @@ from sqlalchemy import create_engine
 from sqlalchemy import exc as sqlalchemy_exc
 from tests.util.check import TypeCheck
 from sqlalchemy.sql.expression import text
-
-if WHITE_BOX:
-    # TODO(tim.simpson): Restore this once white box functionality can be
-    #                    added back to this test module.
-    pass
-    # from nova import context
-    # from nova import db
-    # from nova.compute import power_state
-    # from reddwarf.api.common import dbaas_mapping
-    # from reddwarf.utils import poll_until
+from tests.api.instances_delete import TestBase
 
 
 GROUP = "dbaas.api.instances.actions"
@@ -490,6 +481,68 @@ class ResizeInstanceTest(ActionTestBase):
 def resize_should_not_delete_users():
     if USER_WAS_DELETED:
         fail("Somehow, the resize made the test user disappear.")
+
+
+@test(groups=[GROUP + ".resize.instance.fake"])
+class ResizeShouldDetectNovaFailures(TestBase):
+    """
+    Makes sure when resizing, if Nova skips VERIFY_RESIZE and changes to
+    ACTIVE, to change the RD instance to ACTIVE as well.
+    Also make sure if the Nova operation timeouts, the RD instance returns
+    to active.
+    The name is a trick in fake mode, that makes the underlying Nova server
+    fail the resize, going back to ACTIVE status with the old flavor.
+    """
+
+    EXPECTED_FINAL_STATUS = "ACTIVE"
+    ORIGINAL_FLAVOR_ID = "1"
+    NEW_FLAVOR_ID = "2"
+
+    @before_class
+    def set_up(self, instance_name="test_SERVER_RESIZE_ERROR"):
+        super(ResizeShouldDetectNovaFailures, self).set_up()
+        self.instance = self.dbaas.instances.create(
+            instance_name, self.ORIGINAL_FLAVOR_ID, {'size': 1})
+        assert_equal(self.ORIGINAL_FLAVOR_ID, self.instance.flavor['id'])
+        self.instance_id = self.instance.id
+        self.wait_for_instance_status(self.instance.id)
+
+    @test
+    def resize_with_failure(self):
+        self.instance.get()
+        self.dbaas.instances.resize_instance(self.instance_id,
+                                             self.NEW_FLAVOR_ID)
+        self.instance.get()
+        assert_equal(self.instance.status, "RESIZE")
+        self.wait_for_instance_task_status(self.instance_id,
+                                           'No tasks for the instance.')
+        self.instance.get()
+        assert_equal(self.EXPECTED_FINAL_STATUS, self.instance.status)
+        assert_equal(self.ORIGINAL_FLAVOR_ID, self.instance.flavor['id'])
+
+    @after_class(always_run=True)
+    def tear_down(self):
+        if self.instance:
+            self.delete_instance(self.instance.id, assert_deleted=True)
+
+
+@test(groups=[GROUP + ".resize.instance.fake"])
+class ResizeShouldHandleTimeouts(ResizeShouldDetectNovaFailures):
+
+    EXPECTED_FINAL_STATUS = "RESIZE"
+
+    @before_class
+    def set_up(self):
+        super(ResizeShouldHandleTimeouts, self).set_up(
+            instance_name="test_SERVER_RESIZE_TIMEOUT")
+
+    @test
+    def resize_with_failure(self):
+        super(ResizeShouldHandleTimeouts, self).resize_with_failure()
+
+    @after_class(always_run=True)
+    def tear_down(self):
+        super(ResizeShouldHandleTimeouts, self).tear_down()
 
 
 @test(depends_on_classes=[ResizeInstanceTest], depends_on=[create_user],
